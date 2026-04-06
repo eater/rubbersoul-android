@@ -1,0 +1,31 @@
+Rubber Soul is a straightforward, comprehensive app built specifically and exclusively for scoring rubber bridge. Unlike generic scorekeeping apps that try to juggle dozens of different card games, Rubber Soul is purpose-built to handle the unique, complex math of bridge so you can focus on playing.
+
+Plus, there are absolutely zero barriers to entry: no accounts to create, no passwords to remember, and no forced cloud subscriptions.
+
+Whether you are playing a quick rubber or a multi-game session, Rubber Soul reliably keeps track of every point, penalty, and bonus in the classic tally layout.
+
+Phone & Tablet Optimized
+The app works equally well on both phones and tablets, scaling smoothly to fit your device. The interface is designed with large, clear text so the current score remains easily visible to everyone sitting around the card table.
+
+Intuitive Score Entry
+Recording a hand is fast and simple thanks to a visual, tap-driven interface. You can quickly select the contract level, suit, doubles, honors, and trick results using intuitive buttons. You never have to open your phone's keyboard during gameplay—just tap and score.
+
+Core Scoring Engine
+The app automatically calculates trick points, overtricks, undertrick penalties (including vulnerable, doubled, and redoubled modifiers), honors, and slam bonuses.
+
+Session History & Resuming
+Every completed rubber is saved to your local History. You can review past scorecards, track cumulative player scores across a long session, and assign custom names to your game nights (e.g., "Friday Night Bridge"). If you need to stop playing mid-session, the app safely pauses your current game. You can even browse your history and resume an older, unfinished session at any time.
+
+No-Login Cross-Device Transfer
+Rubber Soul operates entirely on your device without requiring accounts, logins, or databases. However, you can still easily transfer a game to someone else. The app generates a secure link for your current session that you can share via text or email. Tapping the link on another device instantly loads the exact state of the game, allowing a different player to take over scoring or simply review the session on their own phone, tablet, or web browser.
+
+Accessibility & Customization
+Rubber Soul includes several features to make the app comfortable to use for long periods:
+
+4-Color Deck: Optional support for a 4-color suit display (blue diamonds, green clubs) for quicker visual recognition.
+
+High Contrast: A toggleable high-contrast mode for improved readability.
+
+Player Memory: The app remembers recent player names to make starting new matches quick and easy.
+
+Screen Reader Support: The interface is completely navigable for visually impaired players.
