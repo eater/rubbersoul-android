@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Rubber Soul",
+    "slug": "rubber-soul",
+    "version": "26.03",
+    "orientation": "default",
+    "scheme": "rubbersoul",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1b5e20"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "us.eater.rubbersoul",
+      "associatedDomains": [
+        "applinks:eater.github.io"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#1b5e20"
+      },
+      "package": "us.eater.rubbersoul",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "eater.github.io"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png"
+    },
+    "extra": {
+      "eas": {
+          "projectId": "a1025c26-86b3-4a5e-b283-2723f9b4d947"
+      }
+    }
+  }
+}
