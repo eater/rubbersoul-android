@@ -31,12 +31,6 @@ const CONFIG = {
   }
 };
 
-const DATE_CONFIG = {
-  useMonthName: true,
-  use12Hour: false,
-  padHour: false
-};
-
 const ScoringEngine = {
   calcTrickBase: (suit, level) => suit === 'NT' ? 40 + (level - 1) * 30 : (suit === '♥' || suit === '♠') ? level * 30 : level * 20,
 
@@ -49,7 +43,7 @@ const ScoringEngine = {
     return options;
   },
 
-  calculateHandScore: (side, bidLevel, bidSuit, multiplier, honors, contractResult, ledger) => {
+  calculateHandScore: (side, bidLevel, bidSuit, multiplier, honors, contractResult, ledger, declarerIndex) => {
     const isVul = (ledger[side].games > 0); 
     const bidStr = `${bidLevel}${bidSuit}`;
     let newLogs = [];
@@ -58,11 +52,18 @@ const ScoringEngine = {
       const oppSide = (side === 'we' ? 'they' : 'we');
       const downCount = parseInt(contractResult.match(/\d+/)[0]);
       let pts = multiplier === 'n' ? downCount * (isVul ? 100 : 50) : (isVul ? CONFIG.penalties.vulX : CONFIG.penalties.notVulX)[downCount - 1] * (multiplier === 'xx' ? 2 : 1);
-      newLogs.push({ s: oppSide, t: 'down', section: 'above', sc: pts, anno: `${bidStr}${multiplier==='x'?'x':multiplier==='xx'?'xx':''} ${contractResult}` });
+      
+      let logObj = { s: oppSide, t: 'down', section: 'above', sc: pts, anno: `${bidStr}${multiplier==='x'?'x':multiplier==='xx'?'xx':''} ${contractResult}` };
+      if (declarerIndex !== null && declarerIndex !== undefined) logObj.dec = declarerIndex;
+      newLogs.push(logObj);
+      
     } else {
       let trickPoints = ScoringEngine.calcTrickBase(bidSuit, bidLevel) * (multiplier === 'x' ? 2 : multiplier === 'xx' ? 4 : 1);
       const isGameWon = (ledger[side].partial + trickPoints >= 100);
-      newLogs.push({ s: side, t: 'made', section: 'below', sc: trickPoints, g: isGameWon, anno: `${bidStr}${multiplier==='x'?'x':multiplier==='xx'?'xx':''}` });
+      
+      let logObj = { s: side, t: 'made', section: 'below', sc: trickPoints, g: isGameWon, anno: `${bidStr}${multiplier==='x'?'x':multiplier==='xx'?'xx':''}` };
+      if (declarerIndex !== null && declarerIndex !== undefined) logObj.dec = declarerIndex;
+      newLogs.push(logObj);
       
       if (contractResult.includes("over")) {
         const ot = parseInt(contractResult.match(/\d+/)[0]); 
@@ -94,6 +95,28 @@ const ScoringEngine = {
     return hands;
   },
 
+  packLog: (log) => {
+    const sideMap = { "we": 0, "they": 1 };
+    const typeMap = { "made":0, "down":1, "ot":2, "hon":3, "ins":4, "slam":5, "rub":6 };
+    const multMap = { "n": 0, "x": 1, "xx": 2 };
+    
+    return log.map(item => {
+      let arr = [sideMap[item.s], typeMap[item.t], item.sc];
+      if (item.t === 'made') {
+        arr.push(item.b || '', multMap[item.m] || 0, item.g ? 1 : 0);
+        if (item.dec !== undefined && item.dec !== null) arr.push(item.dec);
+      } else if (item.t === 'down') {
+        arr.push(item.b || '', multMap[item.m] || 0, item.lbl || '');
+        if (item.dec !== undefined && item.dec !== null) arr.push(item.dec);
+      } else if (item.t === 'ot') {
+        arr.push(item.cnt || 0);
+      } else if (item.t === 'slam') {
+        arr.push(item.lvl || 0);
+      }
+      return arr;
+    });
+  },
+
   unpackLog: (packedLog) => {
     const revSide = ["we", "they"];
     const revType = ["made", "down", "ot", "hon", "ins", "slam", "rub"];
@@ -117,10 +140,12 @@ const ScoringEngine = {
         obj.g = (arr[5] === 1);
         obj.section = 'below';
         obj.anno = fullBid;
+        if (arr.length > 6 && arr[6] !== null) obj.dec = arr[6];
       } else if (obj.t === 'down') {
         obj.lbl = arr[5];
         obj.section = 'above';
         obj.anno = `${fullBid} ${obj.lbl}`.trim();
+        if (arr.length > 6 && arr[6] !== null) obj.dec = arr[6];
       } else if (obj.t === 'ot') {
         obj.cnt = arr[3];
         obj.section = 'above';
@@ -183,24 +208,8 @@ const sanitize = (str) => {
   return str.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 };
 
-const getFormattedDate = () => {
-  const d = new Date();
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  
-  const year = d.getFullYear();
-  const month = DATE_CONFIG.useMonthName ? monthNames[d.getMonth()] : String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  
-  let hoursNum = d.getHours();
-  const ampm = hoursNum >= 12 ? 'PM' : 'AM';
-  
-  if (DATE_CONFIG.use12Hour) hoursNum = hoursNum % 12 || 12;
-  
-  const hoursStr = DATE_CONFIG.padHour ? String(hoursNum).padStart(2, '0') : String(hoursNum);
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  
-  const timeStr = DATE_CONFIG.use12Hour ? `${hoursStr}:${minutes} ${ampm}` : `${hoursStr}:${minutes}`;
-  return `${year}-${month}-${day} ${timeStr}`;
+const getTimestamp = () => {
+  return new Date().toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
 const safeConfirm = (title, message, onConfirm, onCancel) => {
@@ -259,10 +268,11 @@ function MainContent() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [settings, setSettings] = useState({ 
     fourColor: false, showHonors: true, showRecentPlayers: true, 
-    keepAwake: true, haptics: false 
+    keepAwake: true, haptics: false, trackDeclarer: false 
   });
   
   const [names, setNames] = useState({ we1: '', we2: '', they1: '', they2: '' });
+  const [sessionName, setSessionName] = useState('');
   const [focusedInput, setFocusedInput] = useState('we1');
   const [allNames, setAllNames] = useState([]);
   const [players, setPlayers] = useState({});
@@ -276,6 +286,7 @@ function MainContent() {
   const [history, setHistory] = useState([]);
 
   const [side, setSide] = useState(null);
+  const [declarer, setDeclarer] = useState(null);
   const [bidLevel, setBidLevel] = useState(null);
   const [bidSuit, setBidSuit] = useState(null);
   const [multiplier, setMultiplier] = useState('n');
@@ -300,6 +311,8 @@ function MainContent() {
   
   const [pendingShareUrl, setPendingShareUrl] = useState(null);
 
+  const isBlankSlate = hands.length === 0 && archive.length === 0 && !names.we1;
+
   useEffect(() => {
     const backAction = () => {
       if (selectedVaultSession) { setSelectedVaultSession(null); return true; }
@@ -320,6 +333,7 @@ function MainContent() {
       schemaVersion: SCHEMA_VERSION,
       settings: overrides.settings || settings,
       names: overrides.names || names,
+      sessionName: overrides.sessionName !== undefined ? overrides.sessionName : sessionName,
       allNames: overrides.allNames || allNames,
       players: overrides.players || players,
       rubberNum: overrides.rubberNum || rubberNum,
@@ -350,9 +364,10 @@ function MainContent() {
             parsed.historyVault = parsed.historyVault || [];
           }
 
-          setSettings(parsed.settings || { fourColor: false, showHonors: true, showRecentPlayers: true, keepAwake: true, haptics: false });
+          setSettings(parsed.settings || { fourColor: false, showHonors: true, showRecentPlayers: true, keepAwake: true, haptics: false, trackDeclarer: false });
           setAllNames(parsed.allNames || []); setPlayers(parsed.players || {});
-          setHistoryVault(parsed.historyVault || []); setSessionStartTime(parsed.sessionStartTime || getFormattedDate());
+          setHistoryVault(parsed.historyVault || []); setSessionStartTime(parsed.sessionStartTime || getTimestamp());
+          setSessionName(parsed.sessionName || '');
           setRubberCompleteStatus(parsed.rubberCompleteStatus || null);
 
           if (parsed.names?.we1 || parsed.archive?.length > 0 || parsed.hands?.length > 0) {
@@ -363,7 +378,7 @@ function MainContent() {
             setPlayerModalVisible(true);
           }
         } else {
-          setSessionStartTime(getFormattedDate()); setPlayerModalVisible(true);
+          setSessionStartTime(getTimestamp()); setPlayerModalVisible(true);
         }
       } catch (e) { console.error(e); }
       setIsLoaded(true);
@@ -375,11 +390,11 @@ function MainContent() {
     if (!isLoaded) return;
     const writeTimer = setTimeout(() => {
       AsyncStorage.setItem('RubberSoulState', JSON.stringify({ 
-        schemaVersion: SCHEMA_VERSION, settings, names, allNames, players, rubberNum, hands, ledger, archive, historyVault, history, sessionStartTime, rubberCompleteStatus 
+        schemaVersion: SCHEMA_VERSION, settings, names, sessionName, allNames, players, rubberNum, hands, ledger, archive, historyVault, history, sessionStartTime, rubberCompleteStatus 
       })).catch(e => console.error(e));
     }, 500);
     return () => clearTimeout(writeTimer);
-  }, [settings, names, allNames, players, rubberNum, hands, ledger, archive, historyVault, history, sessionStartTime, rubberCompleteStatus, isLoaded]);
+  }, [settings, names, sessionName, allNames, players, rubberNum, hands, ledger, archive, historyVault, history, sessionStartTime, rubberCompleteStatus, isLoaded]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -401,28 +416,34 @@ function MainContent() {
     return () => sub.remove();
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     if (pendingShareUrl && isLoaded) {
       const url = pendingShareUrl;
+      const hasLocalGame = names.we1 || hands.length > 0 || archive.length > 0;
+      setPendingShareUrl(null);
 
       try {
-        const hashStr = url.split('#')[1];
-        if (!hashStr) throw new Error("No hash payload found");
+        let rawHash = url.split('#')[1];
+        if (!rawHash) throw new Error("No hash payload found");
         
+        let cleanHash = rawHash.split('?')[0].split('&')[0];
+        if (cleanHash.includes('%')) { try { cleanHash = decodeURIComponent(cleanHash); } catch(e) {} }
+
         let decoded;
         try {
-            const decompressed = LZString.decompressFromEncodedURIComponent(hashStr);
-            if (!decompressed) throw new Error("LZ decompression failed");
-            decoded = JSON.parse(decompressed);
+          const decompressed = LZString.decompressFromEncodedURIComponent(cleanHash);
+          if (!decompressed) throw new Error("LZ decompression failed");
+          decoded = JSON.parse(decompressed);
         } catch (e) {
-            decoded = JSON.parse(decodeURIComponent(escape(atob(hashStr))));
+          decoded = JSON.parse(decodeURIComponent(escape(atob(cleanHash))));
         }
 
         if (Array.isArray(decoded) && (decoded[0] === 4 || decoded[0] === 5)) {
-          safeConfirm("Import Session", "Loading this shared link will pause your current session and save it to History. Proceed?", () => {
-
+          
             let newVault = [...historyVault];
-            if (names.we1 || hands.length > 0 || archive.length > 0) {
+            let activeArchiveName = sessionName || getTimestamp();
+
+            if (hasLocalGame) {
               let stArchive = [...archive];
               if (hands.length > 0) {
                 const h = ScoringEngine.calculateUnfinishedBonus(ledger, hands);
@@ -430,12 +451,11 @@ function MainContent() {
                 const tT = h.filter(l => l.s === 'they').reduce((a, b) => a + b.sc, 0);
                 stArchive.unshift({ num: rubberNum, names: names, weTotal: wT, theyTotal: tT, hands: h });
               } else if (names.we1) {
-                // Save stub scorecard if names exist but no hands played
                 stArchive.unshift({ num: rubberNum, names: names, weTotal: 0, theyTotal: 0, hands: [] });
               }
               
               if (stArchive.length > 0) {
-                newVault.unshift({ id: Date.now(), date: sessionStartTime || getFormattedDate(), name: null, players: players, archive: stArchive });
+                newVault.unshift({ id: Date.now(), date: sessionStartTime || getTimestamp(), name: sessionName || null, players: players, archive: stArchive });
               }
             }
 
@@ -458,6 +478,10 @@ function MainContent() {
             importedArchive.reverse();
 
             initP(decoded[1]);
+            
+            let importedName = "";
+            if (decoded.length > 4) importedName = decoded[4] || "";
+
             const importedHands = ScoringEngine.unpackLog(decoded[3]);
             const importedLedger = ScoringEngine.recalcLedger(importedHands);
 
@@ -469,27 +493,33 @@ function MainContent() {
             setHands(importedHands);
             setLedger(importedLedger);
             setNames(importedNames);
+            setSessionName(importedName);
             setPlayers(tally);
             setRubberNum(importedArchive.length + 1);
-            setSessionStartTime(getFormattedDate());
+            setSessionStartTime(getTimestamp());
             setHistory([]);
             setRubberCompleteStatus(null);
             setIsReviewingScorecard(false);
             resetBiddingBox();
             setAllNames(newAllNames);
-            setPendingShareUrl(null);
 
             jumpToTab(1); 
-          }, () => {
-              setPendingShareUrl(null);
-          });
+            
+            if (hasLocalGame) {
+                setTimeout(() => {
+                    Alert.alert("Session Archived", `Your previous session has been safely archived as "${activeArchiveName}". Open your History to resume it at any time.`);
+                }, 500);
+            }
+
+        } else {
+            throw new Error("Invalid payload format");
         }
       } catch (e) {
-        setPendingShareUrl(null);
+        console.error("URL Parsing Error:", e);
         Alert.alert("Error", "Could not load this session. The link might be invalid or corrupted.");
       }
     }
-  }, [pendingShareUrl, isLoaded, names, archive, hands, players, rubberNum, ledger, historyVault, sessionStartTime, allNames]);
+  }, [pendingShareUrl, isLoaded, names, sessionName, archive, hands, players, rubberNum, ledger, historyVault, sessionStartTime, allNames]);
 
   const triggerHaptic = () => { if (settings.haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
@@ -554,7 +584,7 @@ function MainContent() {
       if (newPlayers[p] === undefined) newPlayers[p] = 0; 
       if (!newAllNames.includes(p)) newAllNames.push(p);
     });
-    const startTime = (rubberNum === 1 && hands.length === 0 && archive.length === 0) ? getFormattedDate() : sessionStartTime;
+    const startTime = (rubberNum === 1 && hands.length === 0 && archive.length === 0) ? getTimestamp() : sessionStartTime;
     
     setPlayers(newPlayers); 
     setAllNames(newAllNames);
@@ -572,7 +602,7 @@ function MainContent() {
     const newHistory = [...history, currentSnapshot];
     setHistory(newHistory);
     
-    const newLogs = ScoringEngine.calculateHandScore(side, bidLevel, bidSuit, multiplier, honors, contractResult, ledger);
+    const newLogs = ScoringEngine.calculateHandScore(side, bidLevel, bidSuit, multiplier, honors, contractResult, ledger, declarer);
 
     let newLedger = { ...ledger };
     newLogs.forEach(log => {
@@ -663,7 +693,7 @@ function MainContent() {
   };
 
   const handleStartNewSession = (passedState = null) => {
-    const st = passedState || { archive, hands, players, names, rubberNum, ledger, sessionStartTime };
+    const st = passedState || { archive, hands, players, names, rubberNum, ledger, sessionStartTime, sessionName };
     let finalArchive = [...(st.archive || [])];
     
     if (st.hands && st.hands.length > 0) {
@@ -672,22 +702,23 @@ function MainContent() {
       const tT = h.filter(l => l.s === 'they').reduce((a, b) => a + b.sc, 0);
       finalArchive.unshift({ num: st.rubberNum, names: st.names, weTotal: wT, theyTotal: tT, hands: h });
     } else if (st.names && st.names.we1) {
-      // Save stub scorecard if names exist but no hands played
       finalArchive.unshift({ num: st.rubberNum, names: st.names, weTotal: 0, theyTotal: 0, hands: [] });
     }
     
     const newVault = [...historyVault];
     if (finalArchive.length > 0) {
-      newVault.unshift({ id: Date.now(), date: st.sessionStartTime || getFormattedDate(), name: null, players: st.players, archive: finalArchive });
+      const archiveName = st.sessionName || null;
+      newVault.unshift({ id: Date.now(), date: st.sessionStartTime || getTimestamp(), name: archiveName, players: st.players, archive: finalArchive });
       setHistoryVault(newVault);
     }
     
     setHands([]); setLedger({ we: { games: 0, partial: 0 }, they: { games: 0, partial: 0 } });
     setArchive([]); setHistory([]); setRubberNum(1); setPlayers({}); 
+    setSessionName('');
     setRubberCompleteStatus(null);
     setIsReviewingScorecard(false);
     setNames({ we1: '', we2: '', they1: '', they2: '' }); setFocusedInput('we1'); 
-    setSessionStartTime(getFormattedDate()); setMenuModalVisible(false); resetBiddingBox(); jumpToTab(0);
+    setSessionStartTime(getTimestamp()); setMenuModalVisible(false); resetBiddingBox(); jumpToTab(0);
     setTimeout(() => setPlayerModalVisible(true), 400);
 
     saveActiveSessionImmediate({
@@ -698,35 +729,47 @@ function MainContent() {
         history: [],
         rubberNum: 1,
         players: {},
+        sessionName: '',
         rubberCompleteStatus: null,
         names: { we1: '', we2: '', they1: '', they2: '' },
-        sessionStartTime: getFormattedDate()
+        sessionStartTime: getTimestamp()
     });
   };
 
-  const resetBiddingBox = () => { setSide(null); setBidLevel(null); setBidSuit(null); setMultiplier('n'); setHonors(0); setContractResult('made it'); };
+  const resetBiddingBox = () => { setSide(null); setDeclarer(null); setBidLevel(null); setBidSuit(null); setMultiplier('n'); setHonors(0); setContractResult('made it'); };
 
   const handleShareVault = async (session) => {
     if (!session || !session.archive) return;
-    const sideMap = { "we": 0, "they": 1 }; const typeMap = { "made": 0, "down": 1, "ot": 2, "hon": 3, "ins": 4, "slam": 5, "rub": 6 }; const multMap = { "n": 0, "x": 1, "xx": 2 };
-    
     const cleanArch = session.archive.map(rub => ({ 
       n: [rub.names.we1, rub.names.we2, rub.names.they1, rub.names.they2].map(sanitize), 
-      l: rub.hands.map(item => {
-        let arr = [sideMap[item.s], typeMap[item.t], item.sc];
-        if (item.t === 'made') arr.push(item.b || '', multMap[item.m] || 0, item.g ? 1 : 0);
-        else if (item.t === 'down') arr.push(item.b || '', multMap[item.m] || 0, item.lbl || '');
-        else if (item.t === 'ot') arr.push(item.cnt || 0); else if (item.t === 'slam') arr.push(item.lvl || 0);
-        return arr;
-      }) 
+      l: ScoringEngine.packLog(rub.hands) 
     }));
     
-    const payload = LZString.compressToEncodedURIComponent(JSON.stringify([5, ["", "", "", ""], cleanArch, []]));
-    const url = `https://eater.github.io/#${payload}`;
+    const minified = [5, ["", "", "", ""], cleanArch, [], session.name || "", session.id || Date.now()];
+    const payload = LZString.compressToEncodedURIComponent(JSON.stringify(minified));
+    const url = `https://eater.github.io/rubbersoul/#${payload}`;
+    
     let text = `Rubber Soul Session (${session.name || session.date})\n\n`;
     Object.entries(session.players).forEach(([p, s]) => text += `${p}: ${s > 0 ? '+' : ''}${s}\n`);
     text += `\nView full scorecards here:\n${url}`;
     try { await Share.share({ message: text }); } catch (e) { console.error(e); }
+  };
+
+  const handleShareActive = async () => {
+    const namesArr = [names.we1, names.we2, names.they1, names.they2];
+    const cleanArchive = archive.map(rub => ({ 
+        n: [rub.names.we1, rub.names.we2, rub.names.they1, rub.names.they2].map(sanitize), 
+        l: ScoringEngine.packLog(rub.hands) 
+    }));
+    const packedActive = ScoringEngine.packLog(hands);
+    const sessionDate = Date.now();
+    
+    const minified = [5, namesArr, cleanArchive, packedActive, sessionName || "", sessionDate]; 
+    const payload = LZString.compressToEncodedURIComponent(JSON.stringify(minified));
+    const url = `https://eater.github.io/rubbersoul/#${payload}`;
+    
+    try { await Share.share({ message: `Resume our Rubber Soul session here:\n\n${url}` }); } catch (e) { console.error(e); }
+    setMenuModalVisible(false);
   };
 
   const handleDeleteVault = (id) => {
@@ -742,14 +785,19 @@ function MainContent() {
   };
 
   const handleSaveRename = () => {
-    if (!selectedVaultSession) return;
-    const updatedVault = historyVault.map(v => 
-      v.id === selectedVaultSession.id ? { ...v, name: renameText.trim() || null } : v
-    );
-    setHistoryVault(updatedVault);
-    setSelectedVaultSession({ ...selectedVaultSession, name: renameText.trim() || null });
+    if (selectedVaultSession) {
+      const updatedVault = historyVault.map(v => 
+        v.id === selectedVaultSession.id ? { ...v, name: renameText.trim() || null } : v
+      );
+      setHistoryVault(updatedVault);
+      setSelectedVaultSession({ ...selectedVaultSession, name: renameText.trim() || null });
+      saveActiveSessionImmediate({ historyVault: updatedVault });
+    } else {
+      const newName = renameText.trim() || "";
+      setSessionName(newName);
+      saveActiveSessionImmediate({ sessionName: newName });
+    }
     setRenameModalVisible(false);
-    saveActiveSessionImmediate({ historyVault: updatedVault });
   };
 
   const handleResumeVault = () => {
@@ -764,12 +812,11 @@ function MainContent() {
           const tT = h.filter(l => l.s === 'they').reduce((a, b) => a + b.sc, 0);
           stArchive.unshift({ num: rubberNum, names: names, weTotal: wT, theyTotal: tT, hands: h });
         } else if (names.we1) {
-          // Save stub scorecard if names exist but no hands played
           stArchive.unshift({ num: rubberNum, names: names, weTotal: 0, theyTotal: 0, hands: [] });
         }
         
         if (stArchive.length > 0) {
-          newVault.unshift({ id: Date.now(), date: sessionStartTime || getFormattedDate(), name: null, players: players, archive: stArchive });
+          newVault.unshift({ id: Date.now(), date: sessionStartTime || getTimestamp(), name: sessionName || null, players: players, archive: stArchive });
         }
       }
 
@@ -786,6 +833,7 @@ function MainContent() {
       setLedger({ we: { games: 0, partial: 0 }, they: { games: 0, partial: 0 } });
       setRubberNum(resumeArchive.length + 1);
       setSessionStartTime(selectedVaultSession.date);
+      setSessionName(selectedVaultSession.name || "");
       setHistory([]);
       setRubberCompleteStatus(null);
       setIsReviewingScorecard(false);
@@ -803,6 +851,7 @@ function MainContent() {
           ledger: { we: { games: 0, partial: 0 }, they: { games: 0, partial: 0 } },
           rubberNum: resumeArchive.length + 1,
           sessionStartTime: selectedVaultSession.date,
+          sessionName: selectedVaultSession.name || "",
           history: [],
           rubberCompleteStatus: null,
           names: resumeNames
@@ -836,25 +885,35 @@ function MainContent() {
     );
   };
 
-  const renderRowItem = (h, isWe) => (
-    <View key={Math.random().toString()} style={styles.scoreRow} accessible={true} accessibilityLabel={`${h.s} scored ${h.sc} for ${h.anno}`}>
-      {isWe ? (
-        <View style={styles.scoreRowWe}>
-          <View style={styles.annoContainerWe}>{renderColoredText(h.anno, { textAlign: 'left' })}</View>
-          <View style={[styles.scoreCellWe, h.g && h.section === 'below' && styles.gameLine]}>
-            <Text style={[styles.scoreText, h.section === 'below' ? { color: COLORS.inkCrimson } : { color: COLORS.inkCharcoal }]}>{h.sc}</Text>
+  const renderRowItem = (h, isWe, customNames) => {
+    const decName = (h.dec !== undefined && h.dec !== null && customNames) ? [customNames.we1, customNames.we2, customNames.they1, customNames.they2][h.dec] : null;
+
+    return (
+      <View key={Math.random().toString()} style={styles.scoreRow} accessible={true} accessibilityLabel={`${h.s} scored ${h.sc} for ${h.anno}`}>
+        {isWe ? (
+          <View style={styles.scoreRowWe}>
+            <View style={styles.annoContainerWe}>
+              <Text style={styles.annoNameWe} numberOfLines={1}>{decName || ''}</Text>
+              {renderColoredText(h.anno, { textAlign: 'right' })}
+            </View>
+            <View style={[styles.scoreCellWe, h.g && h.section === 'below' && styles.gameLine]}>
+              <Text style={[styles.scoreText, h.section === 'below' ? { color: COLORS.inkCrimson } : { color: COLORS.inkCharcoal }]}>{h.sc}</Text>
+            </View>
           </View>
-        </View>
-      ) : (
-        <View style={styles.scoreRowThey}>
-          <View style={[styles.scoreCellThey, h.g && h.section === 'below' && styles.gameLine]}>
-            <Text style={[styles.scoreText, h.section === 'below' ? { color: COLORS.inkCrimson } : { color: COLORS.inkCharcoal }]}>{h.sc}</Text>
+        ) : (
+          <View style={styles.scoreRowThey}>
+            <View style={[styles.scoreCellThey, h.g && h.section === 'below' && styles.gameLine]}>
+              <Text style={[styles.scoreText, h.section === 'below' ? { color: COLORS.inkCrimson } : { color: COLORS.inkCharcoal }]}>{h.sc}</Text>
+            </View>
+            <View style={styles.annoContainerThey}>
+              {renderColoredText(h.anno, { textAlign: 'left' })}
+              <Text style={styles.annoNameThey} numberOfLines={1}>{decName || ''}</Text>
+            </View>
           </View>
-          <View style={styles.annoContainerThey}>{renderColoredText(h.anno, { textAlign: 'right' })}</View>
-        </View>
-      )}
-    </View>
-  );
+        )}
+      </View>
+    );
+  };
 
   const renderScorecard = (customHands, customLedger, customNames) => (
       <View style={styles.scorecardWindow} accessible={true} accessibilityRole="summary">
@@ -892,18 +951,18 @@ function MainContent() {
         
         <View style={styles.scoreArea}>
           <View style={[styles.halfColumn, { justifyContent: 'flex-end' }]}>
-              {customHands.filter(h => h.s === 'we' && h.section === 'above').slice().reverse().map(h => renderRowItem(h, true))}
+              {customHands.filter(h => h.s === 'we' && h.section === 'above').slice().reverse().map(h => renderRowItem(h, true, customNames))}
           </View>
           <View style={[styles.halfColumnThey, { justifyContent: 'flex-end' }]}>
-              {customHands.filter(h => h.s === 'they' && h.section === 'above').slice().reverse().map(h => renderRowItem(h, false))}
+              {customHands.filter(h => h.s === 'they' && h.section === 'above').slice().reverse().map(h => renderRowItem(h, false, customNames))}
           </View>
         </View>
         
         <View style={styles.theLine} />
         
         <View style={styles.scoreArea}>
-          <View style={[styles.halfColumn, { justifyContent: 'flex-start' }]}>{customHands.filter(h => h.s === 'we' && h.section === 'below').map(h => renderRowItem(h, true))}</View>
-          <View style={[styles.halfColumnThey, { justifyContent: 'flex-start' }]}>{customHands.filter(h => h.s === 'they' && h.section === 'below').map(h => renderRowItem(h, false))}</View>
+          <View style={[styles.halfColumn, { justifyContent: 'flex-start' }]}>{customHands.filter(h => h.s === 'we' && h.section === 'below').map(h => renderRowItem(h, true, customNames))}</View>
+          <View style={[styles.halfColumnThey, { justifyContent: 'flex-start' }]}>{customHands.filter(h => h.s === 'they' && h.section === 'below').map(h => renderRowItem(h, false, customNames))}</View>
         </View>
       </View>
   );
@@ -943,10 +1002,23 @@ function MainContent() {
                 )}
               </View>
 
-              <View style={[styles.row, { marginBottom: 15 }]}>
-                <TouchableOpacity style={[styles.btn, side === 'we' && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('we'); }} accessibilityRole="button" accessibilityLabel="Select WE side"><Text style={[styles.btnText, side === 'we' && styles.btnTextActive]}>WE</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.btn, side === 'they' && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('they'); }} accessibilityRole="button" accessibilityLabel="Select THEY side"><Text style={[styles.btnText, side === 'they' && styles.btnTextActive]}>THEY</Text></TouchableOpacity>
-              </View>
+              {settings.trackDeclarer && names.we1 ? (
+                <View style={{flexDirection: 'row', width: '100%', gap: 10, marginBottom: 15}}>
+                   <View style={{flex: 1, gap: 6}}>
+                      <TouchableOpacity style={[styles.btn, side === 'we' && declarer === 0 && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('we'); setDeclarer(0); }}><Text style={[styles.btnText, side === 'we' && declarer === 0 && styles.btnTextActive]} numberOfLines={1}>{names.we1}</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.btn, side === 'we' && declarer === 1 && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('we'); setDeclarer(1); }}><Text style={[styles.btnText, side === 'we' && declarer === 1 && styles.btnTextActive]} numberOfLines={1}>{names.we2}</Text></TouchableOpacity>
+                   </View>
+                   <View style={{flex: 1, gap: 6}}>
+                      <TouchableOpacity style={[styles.btn, side === 'they' && declarer === 2 && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('they'); setDeclarer(2); }}><Text style={[styles.btnText, side === 'they' && declarer === 2 && styles.btnTextActive]} numberOfLines={1}>{names.they1}</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.btn, side === 'they' && declarer === 3 && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('they'); setDeclarer(3); }}><Text style={[styles.btnText, side === 'they' && declarer === 3 && styles.btnTextActive]} numberOfLines={1}>{names.they2}</Text></TouchableOpacity>
+                   </View>
+                </View>
+              ) : (
+                <View style={[styles.row, { marginBottom: 15 }]}>
+                  <TouchableOpacity style={[styles.btn, side === 'we' && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('we'); setDeclarer(null); }} accessibilityRole="button" accessibilityLabel="Select WE side"><Text style={[styles.btnText, side === 'we' && styles.btnTextActive]}>WE</Text></TouchableOpacity>
+                  <TouchableOpacity style={[styles.btn, side === 'they' && styles.btnActive]} onPress={() => { triggerHaptic(); setSide('they'); setDeclarer(null); }} accessibilityRole="button" accessibilityLabel="Select THEY side"><Text style={[styles.btnText, side === 'they' && styles.btnTextActive]}>THEY</Text></TouchableOpacity>
+                </View>
+              )}
 
               {!side ? (
                 <View style={{ paddingVertical: 60, alignItems: 'center' }}>
@@ -1115,8 +1187,10 @@ function MainContent() {
             <Text style={styles.menuIcon}>☰</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={styles.headerText} accessibilityRole="header">Rubber #{rubberNum}</Text>
+        <View style={{ flex: 2, alignItems: 'center' }}>
+          <Text style={styles.headerText} accessibilityRole="header">
+            {sessionName ? `${sessionName} | Rubber #${rubberNum}` : `Rubber #${rubberNum}`}
+          </Text>
         </View>
         <View style={{ flex: 1 }} />
       </View>
@@ -1209,6 +1283,12 @@ function MainContent() {
       <Modal visible={playerModalVisible} animationType="fade" transparent={true} onRequestClose={() => setPlayerModalVisible(false)}>
         <View style={styles.modalOverlayCentered}><View style={styles.playerCard}>
           <Text style={styles.modalTitle} accessibilityRole="header">New Rubber</Text>
+          
+          <View style={{ width: '100%', marginBottom: 15, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 15 }}>
+            <Text style={[styles.inputLabel, { textAlign: 'center', marginBottom: 5 }]}>Name this session? <Text style={{fontWeight: 'normal', color: '#666'}}>(Optional)</Text></Text>
+            <TextInput style={styles.input} value={sessionName} onChangeText={setSessionName} placeholder="e.g. Saturday Night Bridge" autoCapitalize="words" />
+          </View>
+
           {settings.showRecentPlayers !== false && allNames.filter(n => ![names.we1, names.we2, names.they1, names.they2].includes(n)).length > 0 && (
             <View style={styles.chipBox}>
               <View style={styles.chipRow}>{allNames.filter(n => ![names.we1, names.we2, names.they1, names.they2].includes(n)).reverse().slice(0, 6).map(n => (
@@ -1227,21 +1307,39 @@ function MainContent() {
             </View>
           </View>
           <TouchableOpacity style={styles.scoreButton} onPress={handleStartMatch} accessibilityRole="button" accessibilityLabel="Start Match"><Text style={styles.scoreButtonText}>Start Match</Text></TouchableOpacity>
-          <TouchableOpacity style={{ marginTop: 15, padding: 10 }} onPress={() => setPlayerModalVisible(false)} accessibilityRole="button" accessibilityLabel="Cancel and view scorecard"><Text style={styles.subCloseText}>Cancel (View Scorecard)</Text></TouchableOpacity>
+          {names.we1 && (
+             <TouchableOpacity style={{ marginTop: 15, padding: 10 }} onPress={() => setPlayerModalVisible(false)} accessibilityRole="button" accessibilityLabel="Cancel and view scorecard"><Text style={styles.subCloseText}>Cancel (View Scorecard)</Text></TouchableOpacity>
+          )}
         </View></View>
       </Modal>
 
       <BaseModal visible={menuModalVisible} onClose={() => setMenuModalVisible(false)} title="Menu" insets={insets}>
-        <TouchableOpacity style={[styles.modalBtn, history.length === 0 && { opacity: 0.5 }]} disabled={history.length === 0} onPress={handleUndo} accessibilityRole="button">
-          <Text style={styles.modalBtnText}>Undo Last Score</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.modalBtn} onPress={() => { names.we1 ? handleForceNew() : (setMenuModalVisible(false), setTimeout(()=>setPlayerModalVisible(true), 300)) }} accessibilityRole="button">
-          <Text style={styles.modalBtnText}>{names.we1 ? "End Current Rubber" : "Start New Rubber"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modalBtn, { borderColor: '#d32f2f', backgroundColor: '#ffebee' }]} onPress={confirmStartNewSession} accessibilityRole="button">
-          <Text style={[styles.modalBtnText, { color: '#d32f2f' }]}>Start New Session</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modalBtn, { marginTop: 15 }]} onPress={() => { setMenuModalVisible(false); setTimeout(() => setHistoryModalVisible(true), 300) }} accessibilityRole="button">
+        {!isBlankSlate && (
+          <>
+            <TouchableOpacity style={[styles.modalBtn, history.length === 0 && { opacity: 0.5 }]} disabled={history.length === 0} onPress={handleUndo} accessibilityRole="button">
+              <Text style={styles.modalBtnText}>Undo Last Score</Text>
+            </TouchableOpacity>
+            
+            <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
+              <TouchableOpacity style={[styles.modalBtn, { flex: 1, borderColor: '#ff9800', backgroundColor: '#fff3e0' }]} onPress={() => { setMenuModalVisible(false); setTimeout(() => { setRenameText(sessionName || ''); setRenameModalVisible(true); }, 300); }} accessibilityRole="button">
+                <Text style={[styles.modalBtnText, { color: '#e65100' }]}>Rename</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, { flex: 1, borderColor: '#1E90FF', backgroundColor: '#e3f2fd' }]} onPress={handleShareActive} accessibilityRole="button">
+                <Text style={[styles.modalBtnText, { color: '#0047AB' }]}>Share Link</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.modalBtn} onPress={() => { names.we1 ? handleForceNew() : (setMenuModalVisible(false), setTimeout(()=>setPlayerModalVisible(true), 300)) }} accessibilityRole="button">
+              <Text style={styles.modalBtnText}>{names.we1 ? "End Current Rubber" : "Start New Rubber"}</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={[styles.modalBtn, { borderColor: '#d32f2f', backgroundColor: '#ffebee', marginBottom: 20 }]} onPress={confirmStartNewSession} accessibilityRole="button">
+              <Text style={[styles.modalBtnText, { color: '#d32f2f' }]}>Start New Session</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        <TouchableOpacity style={styles.modalBtn} onPress={() => { setMenuModalVisible(false); setTimeout(() => setHistoryModalVisible(true), 300) }} accessibilityRole="button">
           <Text style={styles.modalBtnText}>History</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.modalBtn} onPress={() => { setMenuModalVisible(false); setTimeout(() => setSettingsModalVisible(true), 300) }} accessibilityRole="button">
@@ -1251,6 +1349,17 @@ function MainContent() {
           <Text style={styles.modalBtnText}>About</Text>
         </TouchableOpacity>
       </BaseModal>
+
+      <Modal visible={renameModalVisible} animationType="fade" transparent={true} onRequestClose={() => setRenameModalVisible(false)}>
+        <View style={styles.modalOverlayCentered}>
+          <View style={styles.playerCard}>
+            <Text style={styles.modalTitle} accessibilityRole="header">Name Session</Text>
+            <TextInput style={styles.input} value={renameText} onChangeText={setRenameText} placeholder="e.g. Friday Night Bridge" autoCapitalize="words" autoFocus={true} accessibilityLabel="Enter session name" />
+            <TouchableOpacity style={[styles.scoreButton, {marginTop: 15}]} onPress={handleSaveRename} accessibilityRole="button" accessibilityLabel="Save session name"><Text style={styles.scoreButtonText}>Save</Text></TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15, padding: 10 }} onPress={() => setRenameModalVisible(false)} accessibilityRole="button" accessibilityLabel="Cancel renaming"><Text style={styles.subCloseText}>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <BaseModal visible={resultModalVisible} onClose={() => setResultModalVisible(false)} title="Contract Result" insets={insets}>
         <ScrollView ref={modalScrollRef} style={{ width: '100%', maxHeight: 300 }} showsVerticalScrollIndicator={false}>
@@ -1265,6 +1374,7 @@ function MainContent() {
       <BaseModal visible={settingsModalVisible} onClose={() => setSettingsModalVisible(false)} title="Settings" insets={insets}>
         <View style={{ width: '100%' }}>
           <View style={styles.settingRow}><Text style={styles.settingText} accessibilityRole="text">4-Color Deck</Text><Switch value={settings.fourColor} onValueChange={(val) => setSettings({...settings, fourColor: val})} trackColor={{ true: '#a5d6a7' }} thumbColor={settings.fourColor ? '#1b5e20' : '#f4f3f4'} accessibilityLabel="Toggle 4-Color Deck" /></View>
+          <View style={styles.settingRow}><Text style={styles.settingText} accessibilityRole="text">Track Individual Declarer</Text><Switch value={settings.trackDeclarer} onValueChange={(val) => setSettings({...settings, trackDeclarer: val})} trackColor={{ true: '#a5d6a7' }} thumbColor={settings.trackDeclarer ? '#1b5e20' : '#f4f3f4'} accessibilityLabel="Toggle Track Individual Declarer" /></View>
           <View style={styles.settingRow}><Text style={styles.settingText} accessibilityRole="text">Show Honors Buttons</Text><Switch value={settings.showHonors} onValueChange={(val) => setSettings({...settings, showHonors: val})} trackColor={{ true: '#a5d6a7' }} thumbColor={settings.showHonors ? '#1b5e20' : '#f4f3f4'} accessibilityLabel="Toggle Honors Buttons" /></View>
           <View style={styles.settingRow}><Text style={styles.settingText} accessibilityRole="text">Show Recent Player Tiles</Text><Switch value={settings.showRecentPlayers !== false} onValueChange={(val) => setSettings({...settings, showRecentPlayers: val})} trackColor={{ true: '#a5d6a7' }} thumbColor={settings.showRecentPlayers !== false ? '#1b5e20' : '#f4f3f4'} accessibilityLabel="Toggle Recent Player Tiles" /></View>
           <View style={styles.settingRow}><Text style={styles.settingText} accessibilityRole="text">Keep Screen Awake</Text><Switch value={settings.keepAwake} onValueChange={(val) => setSettings({...settings, keepAwake: val})} trackColor={{ true: '#a5d6a7' }} thumbColor={settings.keepAwake ? '#1b5e20' : '#f4f3f4'} accessibilityLabel="Toggle Keep Screen Awake" /></View>
@@ -1339,7 +1449,7 @@ const styles = StyleSheet.create({
   
   safeArea: { flex: 1, backgroundColor: COLORS.primaryGreen },
   header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 10, alignItems: 'center' },
-  headerText: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
+  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center' },
   headerMenuBtn: { padding: 5 },
   menuIcon: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
   content: { flex: 1, backgroundColor: COLORS.backgroundMint },
@@ -1396,15 +1506,18 @@ const styles = StyleSheet.create({
   scoreRowWe: { flexDirection: 'row', width: '100%' },
   scoreRowThey: { flexDirection: 'row', width: '100%' },
   
-  annoContainerWe: { flex: 1, paddingLeft: 8, justifyContent: 'center', alignItems: 'flex-start' },
-  annoContainerThey: { flex: 1, paddingRight: 8, justifyContent: 'center', alignItems: 'flex-end' },
+  annoContainerWe: { flex: 1, paddingLeft: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  annoContainerThey: { flex: 1, paddingRight: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  
+  annoNameWe: { flexShrink: 1, fontSize: 13, color: '#777', paddingRight: 4, fontVariant: ['small-caps'], letterSpacing: 0.5 },
+  annoNameThey: { flexShrink: 1, fontSize: 13, color: '#777', paddingLeft: 4, fontVariant: ['small-caps'], letterSpacing: 0.5 },
   
   scoreCellWe: { paddingRight: 15, minWidth: 80, alignItems: 'flex-end' },
   scoreCellThey: { paddingLeft: 15, minWidth: 80, alignItems: 'flex-start' },
   gameLine: { borderBottomWidth: 2, borderColor: COLORS.inkCharcoal },
   
   scoreText: { fontSize: 26, lineHeight: 30, fontFamily: 'serif' }, 
-  annoText: { fontSize: 15, color: '#666', lineHeight: 18, fontFamily: 'serif' },
+  annoText: { flexShrink: 0, fontSize: 15, color: '#666', lineHeight: 18, fontFamily: 'serif' },
 
   ledgerSummary: { backgroundColor: '#fff', borderRadius: 8, padding: 15, width: '100%', borderWidth: 1, borderColor: '#e0e0e0', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 },
   tallyGrid: { width: '100%' },
